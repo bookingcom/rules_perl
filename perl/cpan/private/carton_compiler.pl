@@ -183,6 +183,7 @@ sub main {
             sha256       => $release->{checksum_sha256},
             strip_prefix => $module,
             url          => $release->{download_url},
+            version      => $release->{version},
         };
     }
 
