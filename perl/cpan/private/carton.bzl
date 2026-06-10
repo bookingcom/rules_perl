@@ -140,7 +140,7 @@ perl_xs(
     textual_hdrs = glob(
         include = ["**/*.h", "**/*.hpp"],
         allow_empty = True
-    ),
+    ) + {extra_headers},
     deps = {deps},
     {typemaps}
 )
@@ -153,7 +153,7 @@ cc_library(
     hdrs = glob(
         include = ["**/*.h", "**/*.hpp"],
         allow_empty = True
-    ),
+    ) + {extra_headers},
     copts = ["-I."],
     includes = [
         "."
@@ -224,13 +224,15 @@ def _get_xs_module_name(content):
 
     return None  # Return None if no MODULE declaration was found
 
-def _generate_perl_xs_entry(repository_ctx = None, module = None, xs_files = None, version = None, typemap = None, deps = []):
-    #content = repository_ctx.read(xs_file)
-
-    #module = _get_xs_module_name(content)
-
-    #if module == None:
-    #    fail("{} does have a MODULE line".format(xs_file))
+def _generate_perl_xs_entry(
+        repository_ctx = None,
+        module = None,
+        xs_files = None,
+        version = None,
+        typemap = None,
+        deps = [],
+        extra_headers = [],
+    ):
 
     if typemap:
         typemap = "typemaps = [\"{}\"],".format(typemap)
@@ -241,7 +243,8 @@ def _generate_perl_xs_entry(repository_ctx = None, module = None, xs_files = Non
         version = version,
         module = module.replace("-", "/") + "/" + module.rsplit("-", 2)[-1],
         typemaps = typemap if typemap else "",
-        deps = json.encode(deps)
+        deps = json.encode(deps),
+        extra_headers = json.encode_indent(extra_headers, indent = " " * 4)
     )
 
     return xs, "{}-xs".format(module)
@@ -278,6 +281,12 @@ def _cpan_distribution_archive_impl(repository_ctx):
 
     files = _get_files_from_repository(repository_ctx = repository_ctx)
 
+    # Stringify extra headers so [Label(//:LMUconfig_h)] becomes ["@@//:LMUconfig_h"]
+    # We don´t want to leak bzlmod internals into our rules, let Starlark deal with it
+    extra_headers = [
+        str(x) for x in repository_ctx.attr.extra_headers
+    ]
+
     xs = ""
     xs_files = []
     cc_files = []
@@ -295,7 +304,8 @@ def _cpan_distribution_archive_impl(repository_ctx):
 
     if cc_files:
         cc_library =_CC_LIBRARY.format(
-            srcs = json.encode(cc_files)
+            srcs = json.encode(cc_files),
+            extra_headers = json.encode_indent(extra_headers, indent = " " * 4)
         )
 
     xs_targets = []
@@ -307,12 +317,11 @@ def _cpan_distribution_archive_impl(repository_ctx):
             xs_files = xs_files,
             version = repository_ctx.attr.version,
             typemap = typemap,
-            deps = ["cc-lib"] if cc_files else []
+            deps = ["cc-lib"] if cc_files else [],
+            extra_headers = extra_headers,
         )
         xs = xs + module
         xs_targets.append(dep)
-        #for file in xs_files:
-
 
     repository_ctx.file("WORKSPACE.bazel", """workspace(name = "{}")""".format(
         repository_ctx.name,
@@ -341,6 +350,7 @@ def _cpan_distribution_archive_impl(repository_ctx):
         "strip_prefix": repository_ctx.attr.strip_prefix,
         "urls": repository_ctx.attr.urls,
         "version": repository_ctx.attr.version,
+        "extra_headers": repository_ctx.attr.extra_headers,
     }
 
 cpan_distribution_archive = repository_rule(
@@ -349,6 +359,10 @@ cpan_distribution_archive = repository_rule(
     attrs = {
         "bins": attr.string_list(
             doc = "List of paths to create perl_binary targets for.",
+            default = [],
+        ),
+        "extra_headers": attr.label_list(
+            doc = "Extra headers to inject into the generated perl_xs module.",
             default = [],
         ),
         "dependencies": attr.string_list(
@@ -405,6 +419,7 @@ def install(*, module_ctx, attrs):
             dependencies = lockfile[module]["dependencies"] + attrs.add_deps.get(module, []),
             bins = attrs.bins.get(module, []),
             version = str(lockfile[module].get("version", "invalid")),
+            extra_headers = attrs.extra_headers.get(module, []),
         )
 
     cpan_hub(

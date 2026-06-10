@@ -33,6 +33,19 @@ _install_tag = tag_class(
             doc = "The name of the module to create",
             mandatory = True,
         ),
+        "extra_headers": attr.label_list_dict(
+            doc = """
+                Extra headers to inject into the generated perl_xs modules. Keys are packages, values are lists of labels.
+
+                Example:
+
+                    extra_headers = {"List-MoreUtils-XS": ["@//:LMUconfig_h"]}
+
+                Where LMUconfig_h is a generated file that holds your processor configuration on your top level
+                module (next to your MODULE.bazel)
+                """,
+            default = {},
+        ),
     },
 )
 
